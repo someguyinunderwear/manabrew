@@ -6,6 +6,10 @@ The largest UI subtree. Read first: `src/AGENTS.md`, `docs/STYLE_GUIDELINES.md`,
 
 ## Layout
 
+Hybrid must receive `null` for the legacy turn/sticky `focusedOpponentId` fallback in `GameBoard`; passing its remembered opponent prevents the equal-width idle state. Manual, targeting, combat, and hover focus remain separate scene inputs.
+
+During Hybrid attacker or blocker declaration, combat selection and dragging must not lock opponent hover focus. An open player sheet still locks it.
+
 | Folder / file                             | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GameBoard.tsx`, `Game.tsx` (in `views/`) | Top-level board composition.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |

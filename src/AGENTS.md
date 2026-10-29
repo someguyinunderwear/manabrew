@@ -37,6 +37,9 @@ Settings choice buttons must preserve the shared `selected` variant; converting 
 
 ## Conventions
 
+- Battlefield zone planners must not persist slots while evaluating candidate scales. Save zone slots only for explicit placement, and reserve the exact rectangle rendered by the chosen plan.
+- Hybrid combat cards keep their controller's normal scale independently of the defender pane, including pending attackers, assigned blockers, and their attachments. Combat-row guests do not consume ordinary battlefield grid cells. Delimiter animation may redraw the combat strip but must not retarget its cards after endpoint solving. Active declarations return to equal idle panes when opponent hover clears.
+
 - **Colors are theme-driven.** No hex / rgb / rgba / hsl / `0xRRGGBB` literals. No semantic palette tailwind (`ring-red-500`). See `docs/agents/UI_THEME_RULES.md` — read it before any color work.
 - **Always `cn()` for conditional classes**, never template literals. Tailwind's JIT cannot detect dynamic class names.
 - **No Tailwind animation plugin.** Neither `tailwindcss-animate` nor `tw-animate-css` is installed, so `animate-in` / `fade-in` / `zoom-in-*` / `slide-in-from-*` classes are silent no-ops. App animations use custom `--animate-*` keyframes in `index.css` (`@theme`).
