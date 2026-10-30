@@ -1,40 +1,58 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ArrowDownAZ } from "lucide-react";
 import type { CardDto } from "@/protocol/game";
-import { GeneratedCardImage } from "@/components/game/GeneratedCardImage";
 import { cn } from "@/lib/utils";
 import { useLongPressPreview } from "@/hooks/useLongPressPreview";
-
-export interface RemoteAttachmentReference {
-  card: CardDto;
-  target: CardDto;
-  playerId: string;
-}
+import { AttachmentCounts } from "@/components/game/AttachmentCounts";
+import { AttachmentMiniature } from "@/components/game/AttachmentMiniature";
+import { AttachmentGroupPile } from "@/components/game/AttachmentGroupPile";
+import {
+  groupAttachments,
+  type AttachmentReference,
+  type AttachmentSection,
+  type AttachmentSort,
+} from "@/components/game/attachmentPanel";
 
 export function RemoteAttachmentPile({
-  cards,
+  sections,
   onHighlight,
   onHover,
   onRightClick,
   onLongPress,
   onLeave,
+  onDismissPreview,
+  previewActive = false,
 }: {
-  cards: RemoteAttachmentReference[];
-  onHighlight: (card: RemoteAttachmentReference | null) => void;
+  sections: AttachmentSection[];
+  onHighlight: (card: AttachmentReference | null) => void;
   onHover: (card: CardDto, anchor: DOMRect) => void;
   onRightClick?: (card: CardDto, anchor: DOMRect) => void;
   onLongPress?: (card: CardDto, anchor: DOMRect) => void;
   onLeave: () => void;
+  onDismissPreview: () => void;
+  previewActive?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const leaveCard = () => {
+  const [sortBy, setSortBy] = useState<AttachmentSort>("attachee");
+  const panelRef = useRef<HTMLElement>(null);
+  const cards = sections.flatMap((section) => section.cards);
+  const previewAnchor = (anchor: DOMRect) => {
+    const panel = panelRef.current;
+    if (!panel) return anchor;
+    const bounds = panel.getBoundingClientRect();
+    const right = panel.parentElement?.getBoundingClientRect().right ?? bounds.right;
+    return new DOMRect(right - bounds.width, bounds.top, bounds.width, bounds.height);
+  };
+  const leaveCard = (nextTarget: EventTarget | null = null) => {
     onHighlight(null);
-    onLeave();
+    if (nextTarget instanceof Node && panelRef.current?.contains(nextTarget)) onDismissPreview();
+    else onLeave();
   };
   const collapse = () => {
     setExpanded(false);
     leaveCard();
   };
-  const longPress = useLongPressPreview<RemoteAttachmentReference>({
+  const longPress = useLongPressPreview<AttachmentReference>({
     resolve: (event) => {
       const anchor =
         event.target instanceof HTMLElement
@@ -45,7 +63,7 @@ export function RemoteAttachmentPile({
     },
     show: (reference, anchor) => {
       onHighlight(reference);
-      onLongPress?.(reference.card, anchor);
+      onLongPress?.(reference.card, previewAnchor(anchor));
     },
     hide: onLeave,
     hideOnRelease: false,
@@ -53,13 +71,23 @@ export function RemoteAttachmentPile({
   if (cards.length === 0) return null;
   return (
     <section
-      aria-label="Your attachments on other boards"
+      ref={panelRef}
+      aria-label="Your Attachments"
       className={cn(
-        "absolute right-0 top-1/2 z-40 flex max-w-[min(70vw,32rem)] -translate-y-1/2 rounded-l-lg border border-border bg-background/80 shadow-lg transition-transform duration-150 motion-reduce:transition-none",
-        expanded ? "translate-x-0" : "translate-x-[calc(100%-2.25rem)]",
+        "pointer-events-none absolute right-0 bottom-24 z-40 flex max-w-[min(70vw,32rem)] items-end transition-transform duration-150 motion-reduce:transition-none",
+        expanded ? "translate-x-0" : "translate-x-[calc(100%-5rem)]",
       )}
       onPointerDown={longPress.onPointerDown}
-      onPointerMove={longPress.onPointerMove}
+      onPointerMove={(event) => {
+        longPress.onPointerMove(event);
+        if (
+          previewActive &&
+          event.pointerType !== "touch" &&
+          event.target instanceof Element &&
+          !event.target.closest("[data-attachment-proxy]")
+        )
+          onDismissPreview();
+      }}
       onPointerUp={longPress.onPointerUp}
       onPointerCancel={longPress.onPointerCancel}
       onClickCapture={longPress.onClickCapture}
@@ -79,54 +107,91 @@ export function RemoteAttachmentPile({
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
-          collapse();
+          if (previewActive) onDismissPreview();
+          else collapse();
         }
       }}
     >
       <button
         type="button"
         aria-expanded={expanded}
-        className="w-9 shrink-0 rounded-l-lg px-2 py-3 text-ui-meta font-medium text-foreground [writing-mode:vertical-rl] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+        className="pointer-events-auto flex h-16 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-l-lg border border-border bg-background/80 px-2 py-2 text-center text-ui-meta font-medium leading-tight text-foreground shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
         onClick={() => (expanded ? collapse() : setExpanded(true))}
       >
-        Your attachments elsewhere · {cards.length}
+        <span>Your Attachments</span>
       </button>
-      <div inert={!expanded} className="flex gap-2 overflow-x-auto p-2">
-        {cards.map((reference) => (
+      <div
+        inert={!expanded}
+        className="pointer-events-auto flex max-h-[calc(100vh-8rem)] w-[28rem] min-w-0 flex-col gap-3 overflow-auto rounded-tl-lg border border-border bg-background/80 p-3 shadow-lg"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-ui-label font-medium text-foreground">Your Attachments</h2>
+          <AttachmentCounts cards={cards} />
           <button
-            key={reference.card.id}
             type="button"
-            data-attachment-proxy={reference.card.id}
-            aria-label={`${reference.card.identity.name}, attached to ${reference.target.identity.name}. Visual reference.`}
-            className="relative w-24 shrink-0 rounded border border-border text-left opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-            onPointerEnter={(event) => {
-              if (event.pointerType === "touch") return;
-              onHighlight(reference);
-              onHover(reference.card, event.currentTarget.getBoundingClientRect());
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType !== "touch") leaveCard();
-            }}
-            onFocus={(event) => {
-              onHighlight(reference);
-              onHover(reference.card, event.currentTarget.getBoundingClientRect());
-            }}
-            onBlur={leaveCard}
-            onContextMenu={(event) => {
-              longPress.onContextMenu(event);
-              if (event.defaultPrevented || !onRightClick) return;
-              event.preventDefault();
-              onHighlight(reference);
-              onRightClick(reference.card, event.currentTarget.getBoundingClientRect());
+            title={`Switch to ${sortBy === "attachee" ? "attachment" : "attachee"} name sorting`}
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-ui-meta text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => {
+              onHighlight(null);
+              onDismissPreview();
+              setSortBy((value) => (value === "attachee" ? "attachment" : "attachee"));
             }}
           >
-            <GeneratedCardImage card={reference.card} className="aspect-[5/7] w-full rounded" />
-            {expanded && (
-              <span className="block max-w-24 truncate bg-background px-1 py-1 text-ui-meta text-foreground">
-                {reference.target.identity.name}
-              </span>
-            )}
+            <ArrowDownAZ aria-hidden="true" className="size-3.5" />
+            Sort: {sortBy === "attachee" ? "Attachee name" : "Attachment name"}
           </button>
+        </header>
+        {sections.map((section) => (
+          <section
+            key={section.playerId}
+            aria-label={section.title}
+            className="space-y-2 border-t border-border pt-2"
+          >
+            <header className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-ui-meta font-medium text-foreground">{section.title}</h3>
+              <AttachmentCounts cards={section.cards} />
+            </header>
+            {[true, false].map((attached) => {
+              const group = section.cards.filter(
+                (reference) => Boolean(reference.card.attachedTo) === attached,
+              );
+              if (group.length === 0) return null;
+              return (
+                <div key={String(attached)} className="space-y-1">
+                  <h4 className="text-ui-meta text-muted-foreground">
+                    {attached ? "Attached" : "Unattached"}
+                  </h4>
+                  <div className="space-y-2">
+                    {groupAttachments(group, sortBy).map((pile) => (
+                      <AttachmentGroupPile
+                        key={`${sortBy}:${pile.key}`}
+                        group={pile}
+                        onToggle={() => {
+                          onHighlight(null);
+                          onDismissPreview();
+                        }}
+                        renderCard={(reference) => (
+                          <AttachmentMiniature
+                            key={reference.card.id}
+                            reference={reference}
+                            onHighlight={onHighlight}
+                            onHover={(card, anchor) => onHover(card, previewAnchor(anchor))}
+                            onRightClick={
+                              onRightClick
+                                ? (card, anchor) => onRightClick(card, previewAnchor(anchor))
+                                : undefined
+                            }
+                            onLeave={leaveCard}
+                            onContextMenu={longPress.onContextMenu}
+                          />
+                        )}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
         ))}
       </div>
     </section>

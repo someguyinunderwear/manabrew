@@ -1,6 +1,6 @@
 import type { CardDto, CombatAssignmentDto } from "@/protocol/game";
 import type { ManaAbilityActionInfo } from "@/components/game/manaUtils";
-import type { PreviewPointerInput } from "@/lib/cardPreview";
+import type { PreviewPlacement, PreviewPointerInput } from "@/lib/cardPreview";
 
 export interface ScreenBounds {
   x: number;
@@ -19,7 +19,7 @@ export interface ScreenPos {
   y: number;
 }
 
-export type HoverPlacement = "auto" | "top-center";
+export type HoverPlacement = Exclude<PreviewPlacement, "pinned">;
 
 /**
  * Arrow endpoint referenced by game-entity identity so the Pixi scene can

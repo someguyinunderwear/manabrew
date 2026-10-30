@@ -26,7 +26,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { isHorizontalGameCard } from "@/lib/horizontalGameCard";
 import { cn } from "@/lib/utils";
 import { GHOST_CLICK_ARM_MS } from "@/lib/responsive";
-import { PREVIEW_TIMING, type PreviewFlipOptions } from "@/lib/cardPreview";
+import { PREVIEW_TIMING, type PreviewFlipOptions, type PreviewPlacement } from "@/lib/cardPreview";
 import { CARD_PREVIEW_EVENT_HANDLERS } from "@/lib/cardPreviewEvents";
 import type { HandActionOption } from "@/stores/useGameUIStore";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -51,7 +51,7 @@ interface CardPreviewProps {
   mouseX: number;
   mouseY: number;
   anchorRect?: DOMRect | null;
-  placement?: "auto" | "top-center" | "pinned";
+  placement?: PreviewPlacement;
   viewportRight?: number;
   viewportBounds?: DOMRect;
   phase?: "open" | "closing";
