@@ -1683,6 +1683,7 @@ export function GameBoard({
         const target = card.attachedTo ? byId.get(card.attachedTo) : undefined;
         return card.controllerId === me.id &&
           target &&
+          target.controllerId !== me.id &&
           !card.isFaceDown &&
           !card.phasedOut &&
           !("visibility" in card && card.visibility === "hidden")
@@ -1991,9 +1992,11 @@ export function GameBoard({
       <RemoteAttachmentPile
         cards={remoteAttachments}
         onHighlight={(entry) => setHighlightedAttachmentId(entry?.card.id ?? null)}
-        onInspect={(card, anchor) =>
+        onHover={(card, anchor) =>
           onHoverCard(card, undefined, { useAnchor: true, anchorOverride: anchor })
         }
+        onRightClick={onRightClickCard}
+        onLongPress={onLongPressCard}
         onLeave={() => onHoverCard(null)}
       />
       {sheetSpec && <PlayerSheetModal spec={sheetSpec} onClose={closePlayerSheet} />}
