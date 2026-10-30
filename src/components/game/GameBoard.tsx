@@ -334,6 +334,7 @@ export function GameBoard({
     ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
   );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
+  const showAttachmentPanel = usePreferencesStore((s) => s.showAttachmentPanel);
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
   const chooseActionPrompt = promptOf(currentPrompt, "chooseAction");
@@ -1679,8 +1680,11 @@ export function GameBoard({
   ]);
 
   const attachmentSections = useMemo(
-    () => buildAttachmentSections(battlefield, unifiedRegions, me.id, [me, ...opponents]),
-    [battlefield, unifiedRegions, me, opponents],
+    () =>
+      showAttachmentPanel
+        ? buildAttachmentSections(battlefield, unifiedRegions, me.id, [me, ...opponents])
+        : [],
+    [battlefield, unifiedRegions, me, opponents, showAttachmentPanel],
   );
   const [highlightedAttachmentId, setHighlightedAttachmentId] = useState<string | null>(null);
   const highlightedAttachment = attachmentSections
@@ -1982,30 +1986,32 @@ export function GameBoard({
           overlay={{ ...overlaySceneProps, promptSpec: promptOverlaySpec ?? null }}
         />
       )}
-      <RemoteAttachmentPile
-        sections={attachmentSections}
-        onHighlight={(entry) => setHighlightedAttachmentId(entry?.card.id ?? null)}
-        onHover={(card, anchor) =>
-          onHoverCard(card, undefined, {
-            useAnchor: true,
-            anchorOverride: anchor,
-            placement: "beside-top",
-          })
-        }
-        onRightClick={
-          onRightClickCard
-            ? (card, anchor) => onRightClickCard(card, anchor, "beside-top")
-            : undefined
-        }
-        onLongPress={
-          onLongPressCard
-            ? (card, anchor) => onLongPressCard(card, anchor, "beside-top")
-            : undefined
-        }
-        onLeave={() => onHoverCard(null)}
-        onDismissPreview={onDismissHoverPreview ?? (() => onHoverCard(null))}
-        previewActive={externalPreviewActive}
-      />
+      {showAttachmentPanel && (
+        <RemoteAttachmentPile
+          sections={attachmentSections}
+          onHighlight={(entry) => setHighlightedAttachmentId(entry?.card.id ?? null)}
+          onHover={(card, anchor) =>
+            onHoverCard(card, undefined, {
+              useAnchor: true,
+              anchorOverride: anchor,
+              placement: "beside-top",
+            })
+          }
+          onRightClick={
+            onRightClickCard
+              ? (card, anchor) => onRightClickCard(card, anchor, "beside-top")
+              : undefined
+          }
+          onLongPress={
+            onLongPressCard
+              ? (card, anchor) => onLongPressCard(card, anchor, "beside-top")
+              : undefined
+          }
+          onLeave={() => onHoverCard(null)}
+          onDismissPreview={onDismissHoverPreview ?? (() => onHoverCard(null))}
+          previewActive={externalPreviewActive}
+        />
+      )}
       {sheetSpec && <PlayerSheetModal spec={sheetSpec} onClose={closePlayerSheet} />}
       {inspectedHandCard && (
         <CardInspectModal card={inspectedHandCard} onClose={() => setInspectedHandCard(null)} />
