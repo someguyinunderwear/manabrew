@@ -28,6 +28,7 @@ export type HoverPlacement = "auto" | "top-center";
  */
 export type ArrowEndpoint =
   | { kind: "card"; id: string }
+  | { kind: "attachment-proxy"; id: string }
   | { kind: "player"; id: string }
   | { kind: "stack"; id: string }
   /** "Drop here" anchor for the placement preview. `playerId` selects

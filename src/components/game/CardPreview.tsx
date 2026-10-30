@@ -43,6 +43,8 @@ import { CardPreviewHoverArea } from "./CardPreviewHoverArea";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { gameCardFaceIndex } from "@/lib/gameCard";
 import { previewActionFace } from "@/pixi/cardPreview/previewMechanics";
+import { useGameStore } from "@/stores/useGameStore";
+import { cardControllerLabel } from "@/components/game/cardControllerLabel";
 import type { CardLightingMode, CardPose } from "@/lib/cardLighting";
 interface CardPreviewProps {
   card: CardDto;
@@ -189,6 +191,8 @@ export function CardPreview({
   pose,
 }: CardPreviewProps) {
   const resolvedGameCard = useResolvedGameCard(card);
+  const players = useGameStore((state) => state.gameView?.players);
+  const controllerLabel = cardControllerLabel(card, players ?? []);
   const preferredView = usePreferencesStore((state) => state.inGameCardPreviewStyle);
   const generatedView = !onToggleView && preferredView === "rules";
   const toggleView =
@@ -672,6 +676,11 @@ export function CardPreview({
                       rail={rail}
                       compactRail={false}
                     />
+                  )}
+                  {controllerLabel && !faceless && (
+                    <div className="pointer-events-none absolute inset-x-2 bottom-1 z-20 rounded bg-background/95 px-2 py-1 text-center text-ui-meta font-medium text-foreground">
+                      {controllerLabel}
+                    </div>
                   )}
                   {showHoverAreas && (
                     <div
