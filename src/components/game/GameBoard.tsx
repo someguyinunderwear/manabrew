@@ -50,6 +50,10 @@ import { GAP, HAND_BOTTOM_SINK_FRAC, HAND_RESERVE_TRIM } from "@/pixi/constants"
 import type { HandActionOption } from "@/stores/useGameUIStore";
 import { ReconnectBanner } from "@/components/lobby/ReconnectBanner";
 import { GameBoardAccessibility } from "@/components/game/GameBoardAccessibility";
+import {
+  RemoteAttachmentPile,
+  type RemoteAttachmentReference,
+} from "@/components/game/RemoteAttachmentPile";
 function promptOf<TType extends PromptType>(
   prompt: Prompt | null | undefined,
   type: TType,
@@ -1598,9 +1602,10 @@ export function GameBoard({
     const moveToDefender = (id: string, defList: CardDto[]) => {
       const card = cardById.get(id);
       if (!card) return;
-      const ctrl = cardsByController.get(card.controllerId);
-      const idx = ctrl?.findIndex((c) => c.id === id) ?? -1;
-      if (ctrl && idx >= 0) ctrl.splice(idx, 1);
+      for (const cards of cardsByController.values()) {
+        const index = cards.findIndex((entry) => entry.id === id);
+        if (index >= 0) cards.splice(index, 1);
+      }
       defList.push(card);
       for (const child of attachedTo.get(id) ?? []) moveToDefender(child.id, defList);
     };
@@ -1670,6 +1675,43 @@ export function GameBoard({
     playerColors,
   ]);
 
+  const remoteAttachments = useMemo((): RemoteAttachmentReference[] => {
+    const byId = new Map(battlefield.map((card) => [card.id, card]));
+    return unifiedRegions.flatMap((region) => {
+      if (region.isLocal) return [];
+      return region.state.cards.flatMap((card) => {
+        const target = card.attachedTo ? byId.get(card.attachedTo) : undefined;
+        return card.controllerId === me.id &&
+          target &&
+          !card.isFaceDown &&
+          !card.phasedOut &&
+          !("visibility" in card && card.visibility === "hidden")
+          ? [{ card, target, playerId: region.playerId }]
+          : [];
+      });
+    });
+  }, [battlefield, unifiedRegions, me.id]);
+  const [highlightedAttachmentId, setHighlightedAttachmentId] = useState<string | null>(null);
+  const highlightedAttachment = remoteAttachments.find(
+    (entry) => entry.card.id === highlightedAttachmentId,
+  );
+  if (highlightedAttachmentId && !highlightedAttachment) setHighlightedAttachmentId(null);
+  const attachmentArrows = useMemo(
+    (): ArrowSpec[] => [
+      ...(arrowSpecs ?? []),
+      ...(highlightedAttachment
+        ? [
+            {
+              from: { kind: "attachment-proxy" as const, id: highlightedAttachment.card.id },
+              to: { kind: "card" as const, id: highlightedAttachment.target.id },
+              type: "placement" as const,
+              hostile: false,
+            },
+          ]
+        : []),
+    ],
+    [arrowSpecs, highlightedAttachment],
+  );
   const sheetPlayer = [me, ...opponents].find((player) => player.id === sheetPlayerId);
   const baseSheetSpec =
     sheetPlayerId && !gameOver
@@ -1765,7 +1807,7 @@ export function GameBoard({
       !!dragAttackerId ||
       !!dragBlockerId ||
       !!draggingCardId,
-    arrowSpecs: arrowSpecs ?? [],
+    arrowSpecs: attachmentArrows,
     castingArrow,
     declareBlockers: promptType === "chooseBlockers",
     combatBlocks: combatAssignmentsAll,
@@ -1777,7 +1819,7 @@ export function GameBoard({
     focusedOpponentId,
     combatFocusIds,
     targetingFocusIds,
-    manualFocusId,
+    manualFocusId: highlightedAttachment?.playerId ?? manualFocusId,
     playerBars: playerBarSpecs,
     showPlayerBars: true,
     zoneTiles: zoneTilesByPlayer,
@@ -1946,6 +1988,14 @@ export function GameBoard({
           overlay={{ ...overlaySceneProps, promptSpec: promptOverlaySpec ?? null }}
         />
       )}
+      <RemoteAttachmentPile
+        cards={remoteAttachments}
+        onHighlight={(entry) => setHighlightedAttachmentId(entry?.card.id ?? null)}
+        onInspect={(card, anchor) =>
+          onHoverCard(card, undefined, { useAnchor: true, anchorOverride: anchor })
+        }
+        onLeave={() => onHoverCard(null)}
+      />
       {sheetSpec && <PlayerSheetModal spec={sheetSpec} onClose={closePlayerSheet} />}
       {inspectedHandCard && (
         <CardInspectModal card={inspectedHandCard} onClose={() => setInspectedHandCard(null)} />

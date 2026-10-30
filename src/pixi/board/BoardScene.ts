@@ -2204,7 +2204,8 @@ export class BoardScene {
       castDragging ||
       !!this.blockDragBlockerId ||
       !!this.attackDragAttackerId ||
-      !!this.hoveredCombatArrow;
+      !!this.hoveredCombatArrow ||
+      this.arrowSpecs.some((spec) => spec.from.kind === "attachment-proxy");
     // Suppress the (card-anchored) combat arrows while the accordion eases so they
     // don't lag their moving targets — but keep live drag/casting arrows, or the
     // player loses targeting feedback exactly when combat opens the fields.
@@ -2379,6 +2380,11 @@ export class BoardScene {
 
   private resolveArrowEndpoint(ep: ArrowEndpoint, canvasRect: DOMRect): ScreenPos | null {
     switch (ep.kind) {
+      case "attachment-proxy":
+        return this.domCenterCanvasLocal(
+          `[data-attachment-proxy="${CSS.escape(ep.id)}"]`,
+          canvasRect,
+        );
       case "card": {
         for (const rec of this.regions.values()) {
           const pos = rec.region.getCardPosition(ep.id);
