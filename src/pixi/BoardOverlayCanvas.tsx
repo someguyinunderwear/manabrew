@@ -1,6 +1,6 @@
 // @refresh reset
 import { topModal } from "@/lib/modalStack";
-import type { PreviewFlipOptions } from "@/lib/cardPreview";
+import type { PreviewFlipOptions, PreviewPlacement } from "@/lib/cardPreview";
 import { CARD_PREVIEW_EVENT_HANDLERS, isCardPreviewTarget } from "@/lib/cardPreviewEvents";
 import { hasActiveVirtualTextInput } from "@/lib/keybindings";
 
@@ -53,7 +53,7 @@ export interface BoardOverlayPreviewSpec {
   card: CardDto;
   phase: "open" | "closing";
   sticky: boolean;
-  placement: "auto" | "top-center" | "pinned";
+  placement: PreviewPlacement;
   showBackFace: boolean;
   suppressed: boolean;
   skipEnterAnimation: boolean;

@@ -12,7 +12,7 @@ import {
 import type { CardDto } from "@/protocol/game";
 import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
-import type { PreviewFlipOptions, PreviewPhase } from "@/lib/cardPreview";
+import type { PreviewFlipOptions, PreviewPhase, PreviewPlacement } from "@/lib/cardPreview";
 import { isCoarsePointer } from "@/lib/responsive";
 import type { HandActionOption } from "@/stores/useGameUIStore";
 import type { Theme } from "@/hooks/useTheme";
@@ -118,7 +118,7 @@ export interface RulesCardPreviewSpec {
   phase: Exclude<PreviewPhase, "hidden">;
   sticky: boolean;
   showBackFace: boolean;
-  placement: "auto" | "top-center" | "pinned";
+  placement: PreviewPlacement;
   suppressed: boolean;
   skipEnterAnimation: boolean;
   actions: HandActionOption[];
