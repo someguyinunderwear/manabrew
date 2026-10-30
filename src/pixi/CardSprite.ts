@@ -1864,13 +1864,18 @@ export class CardSprite extends Container {
     this.stackCountContainer.cursor = onTap ? "pointer" : "default";
     if (!onTap) this.stackCountContainer.hitArea = null;
   }
-  setStackCount(count: number): void {
+  setStackCount(count: number, overflow = false): void {
     if (count <= 1) {
       this.stackCountContainer.visible = false;
       return;
     }
     this.stackCountContainer.visible = true;
-    this.stackCountText.text = `×${count}`;
+    this.stackCountText.scale.set(1);
+    this.stackCountText.text = overflow ? `Overflow ×${count}` : `×${count}`;
+    if (overflow)
+      this.stackCountText.scale.set(
+        Math.min(1, Math.max(1, this.cw - 12) / Math.max(1, this.stackCountText.width)),
+      );
     const tw = this.stackCountText.width + 6;
     const th = this.stackCountText.height + 3;
     this.stackCountBg.clear();

@@ -55,8 +55,6 @@ import {
   GRID_SKELETON_STACK_FILL_ALPHA,
   HOVER_SCALE,
   HOVER_SCALE_LERP,
-  MAX_GRID_SLOTS,
-  MAX_LAND_SLOTS,
   OVERLAY_FADE_LERP,
   ROTATION_LERP,
   SNAP_ALPHA,
@@ -87,16 +85,16 @@ function battlefieldCardCategory(card: CardDto): BattlefieldCardCategory {
   return "other";
 }
 
-const OVERFLOW_PRIORITY: Record<BattlefieldCardCategory, number> = {
-  creature: 0,
-  other: 1,
-  land: 2,
-};
-
 interface BoardRegionOptions {
   orientation: RegionOrientation;
   combatRowReserved: boolean;
   presentation: BoardRegionPresentation;
+}
+
+interface BattlefieldGridPlacement {
+  grid: GridLayoutInfo;
+  positions: Map<string, Point>;
+  overflow: CardDto[];
 }
 
 const ENTRANCE_LAND_PX = 8;
@@ -114,15 +112,28 @@ function replaceMap<K, V>(target: Map<K, V>, source: Map<K, V>): void {
   for (const [key, value] of source) target.set(key, value);
 }
 
-/** Derived from the whole engine DTO rather than a hand-picked field list, so
- *  every property the engine reports splits the stack automatically. Only `id`
- *  (always unique) is excluded. */
-function stackIdentityKey(c: CardDto): string {
-  const cached = stackKeyCache.get(c);
+function stackIdentityKey(card: CardDto): string {
+  const cached = stackKeyCache.get(card);
   if (cached !== undefined) return cached;
-  const key = JSON.stringify(c, (k, value) => (k === "id" ? undefined : value));
-  stackKeyCache.set(c, key);
-  return key;
+  const state: Record<string, unknown> = Object.fromEntries(
+    Object.entries(card).filter(([key]) => key !== "id"),
+  );
+  if (card.identity.isToken) {
+    state.identity = { name: card.identity.name, isToken: true };
+    delete state.cosmetics;
+    delete state.foil;
+  }
+  for (const key of ["types", "subtypes", "supertypes", "keywords", "grantedKeywords"] as const) {
+    state[key] = [...card[key]].sort();
+  }
+  const signature = JSON.stringify(state, (_key: string, value: unknown) => {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+    }
+    return value;
+  });
+  stackKeyCache.set(card, signature);
+  return signature;
 }
 
 export class BoardRegion {
@@ -163,6 +174,7 @@ export class BoardRegion {
   private uiParent = new Map<string, string>();
   private stackPeekAnchorId: string | null = null;
   private stackCounts = new Map<string, number>();
+  private overflowAnchors = new Set<string>();
   private nameGroupChildren = new Set<string>();
   private overflowChildren = new Set<string>();
   private combatStaging: SceneCombatStaging | null = null;
@@ -429,7 +441,10 @@ export class BoardRegion {
         userSlots: new Map(this.userSlots),
         zoneSlots: new Map(this.zoneSlots),
         uiParent: new Map(
-          [...this.uiParent].filter(([childId]) => !this.nameGroupChildren.has(childId)),
+          [...this.uiParent].filter(
+            ([childId]) =>
+              !this.nameGroupChildren.has(childId) && !this.overflowChildren.has(childId),
+          ),
         ),
       };
     } else if (x === null && this.unbandedLayout !== null) {
@@ -437,6 +452,8 @@ export class BoardRegion {
       replaceMap(this.zoneSlots, this.unbandedLayout.zoneSlots);
       replaceMap(this.uiParent, this.unbandedLayout.uiParent);
       this.nameGroupChildren.clear();
+      this.overflowChildren.clear();
+      this.overflowAnchors.clear();
       this.unbandedLayout = null;
     }
     this.gridBandX = x;
@@ -868,6 +885,7 @@ export class BoardRegion {
     this.nameGroupChildren.clear();
     for (const childId of this.overflowChildren) this.uiParent.delete(childId);
     this.overflowChildren.clear();
+    this.overflowAnchors.clear();
 
     const effectiveParent = new Map<string, string>();
     for (const c of state.cards) {
@@ -898,11 +916,18 @@ export class BoardRegion {
       }
     }
     const tentativeTopLevel = state.cards.filter((c) => !effectiveParent.has(c.id));
-    this.applyOverflowStacking(tentativeTopLevel);
+    this.pruneRemovedBattlefieldEntries(currentIds);
+    for (const id of [...this.userSlots.keys()]) {
+      if (!currentIds.has(id) || effectiveParent.has(id)) this.userSlots.delete(id);
+    }
+    if (this.pendingDrop && effectiveParent.has(this.pendingDrop.cardId)) this.pendingDrop = null;
+    const placement = this.computeBattlefieldGrid(tentativeTopLevel);
+    this.applyOverflowStacking(tentativeTopLevel, placement);
     for (const [childId, parentId] of [...this.uiParent]) {
       if (!currentIds.has(childId) || !currentIds.has(parentId)) continue;
       if (childId === parentId) continue;
-      if (!effectiveParent.has(childId)) {
+      const attachedTo = cardMap.get(childId)?.attachedTo;
+      if (!attachedTo || !cardMap.has(attachedTo)) {
         effectiveParent.set(childId, parentId);
       }
     }
@@ -919,13 +944,7 @@ export class BoardRegion {
     this.effectiveChildrenMap = effectiveChildren;
     const topLevelCards = state.cards.filter((c) => !effectiveParent.has(c.id));
 
-    this.pruneRemovedBattlefieldEntries(currentIds);
-    for (const id of [...this.userSlots.keys()]) {
-      if (!currentIds.has(id) || effectiveParent.has(id)) {
-        this.userSlots.delete(id);
-      }
-    }
-    const positions = this.computeBattlefieldGrid(topLevelCards);
+    const positions = placement.positions;
     this.gridTargets = positions;
     for (const entry of this.entries.values()) this.applyTouchChrome(entry.sprite);
 
@@ -1203,45 +1222,17 @@ export class BoardRegion {
     }
   }
 
-  private applyOverflowStacking(topLevelCandidates: CardDto[]): void {
-    if (topLevelCandidates.length === 0) return;
-    const grid = this.freshGrid();
+  private applyOverflowStacking(
+    topLevelCandidates: CardDto[],
+    placement: BattlefieldGridPlacement,
+  ): void {
+    if (placement.overflow.length === 0) return;
+    const { grid, positions } = placement;
     const zone = grid.zone;
-    let freeCellCount = 0;
-    for (const cell of grid.cells) {
-      if (!cell.blocked) freeCellCount++;
-    }
-    freeCellCount = Math.max(1, freeCellCount);
-    if (topLevelCandidates.length <= freeCellCount) return;
-
-    const priority = (card: CardDto): number =>
-      card.id === this.pendingDrop?.cardId ? 0 : this.userPlacedCards.has(card.id) ? 1 : 2;
-    const prioritized = topLevelCandidates.map((card, index) => ({ card, index }));
-    prioritized.sort((a, b) => priority(a.card) - priority(b.card) || a.index - b.index);
-    const anchorIds = new Set<string>();
-    const anchoredCategories = new Set<BattlefieldCardCategory>();
-    for (const { card } of prioritized) {
-      const category = battlefieldCardCategory(card);
-      if (anchoredCategories.has(category)) continue;
-      anchoredCategories.add(category);
-      anchorIds.add(card.id);
-    }
-    prioritized.sort((a, b) => {
-      const rankA = priority(a.card);
-      const rankB = priority(b.card);
-      if (rankA !== rankB) return rankA - rankB;
-      if (rankA === 2 && anchorIds.has(a.card.id) !== anchorIds.has(b.card.id)) {
-        return anchorIds.has(a.card.id) ? -1 : 1;
-      }
-      const category =
-        OVERFLOW_PRIORITY[battlefieldCardCategory(a.card)] -
-        OVERFLOW_PRIORITY[battlefieldCardCategory(b.card)];
-      return category || a.index - b.index;
+    const keepers = topLevelCandidates.flatMap((card) => {
+      const position = positions.get(card.id);
+      return position ? [{ card, position }] : [];
     });
-    const overflowCount = topLevelCandidates.length - freeCellCount;
-    const overflow = prioritized.slice(-overflowCount).map(({ card }) => card);
-    const overflowIds = new Set(overflow.map((card) => card.id));
-    const keepers = topLevelCandidates.filter((card) => !overflowIds.has(card.id));
     if (keepers.length === 0) return;
 
     const centerX = zone.x + zone.width / 2;
@@ -1250,38 +1241,38 @@ export class BoardRegion {
     const nonLandAnchorY = this.mirrored ? bottomAnchorY : topAnchorY;
     const landAnchorY = this.mirrored ? topAnchorY : bottomAnchorY;
 
-    const keeperPos = (id: string, fallbackY: number): Point => {
-      const slot = this.userSlots.get(id);
-      if (slot) {
-        const cell = cellAt(grid, slot.col, slot.row);
-        if (cell) return { x: cell.cx, y: cell.cy };
-      }
-      return { x: centerX, y: fallbackY };
-    };
-
-    for (const overflowCard of overflow) {
+    for (const overflowCard of placement.overflow) {
       const category = battlefieldCardCategory(overflowCard);
       const anchorY = category === "land" ? landAnchorY : nonLandAnchorY;
       let bestId: string | null = null;
       let bestDist = Infinity;
+      let bestSameName = false;
       let fallbackId: string | null = null;
       let fallbackDist = Infinity;
-      for (const keeper of keepers) {
-        const position = keeperPos(keeper.id, anchorY);
+      for (const { card: keeper, position } of keepers) {
         const distance = (position.x - centerX) ** 2 + (position.y - anchorY) ** 2;
         if (distance < fallbackDist) {
           fallbackDist = distance;
           fallbackId = keeper.id;
         }
-        if (battlefieldCardCategory(keeper) === category && distance < bestDist) {
+        const sameName =
+          !keeper.isFaceDown &&
+          !overflowCard.isFaceDown &&
+          keeper.identity.name === overflowCard.identity.name;
+        if (
+          battlefieldCardCategory(keeper) === category &&
+          ((sameName && !bestSameName) || (sameName === bestSameName && distance < bestDist))
+        ) {
           bestDist = distance;
           bestId = keeper.id;
+          bestSameName = sameName;
         }
       }
       const keeperId = bestId ?? fallbackId;
       if (keeperId) {
         this.uiParent.set(overflowCard.id, keeperId);
         this.overflowChildren.add(overflowCard.id);
+        this.overflowAnchors.add(keeperId);
         this.userSlots.delete(overflowCard.id);
         for (const childId of this.nameGroupChildren) {
           if (this.uiParent.get(childId) === overflowCard.id) this.uiParent.set(childId, keeperId);
@@ -1304,7 +1295,7 @@ export class BoardRegion {
     );
   }
 
-  private computeBattlefieldGrid(cards: CardDto[]): Map<string, Point> {
+  private computeBattlefieldGrid(cards: CardDto[]): BattlefieldGridPlacement {
     const positions = new Map<string, Point>();
     const zone = this.playArea();
     const grid = this.freshGrid();
@@ -1313,10 +1304,35 @@ export class BoardRegion {
     const occupied = new Set<string>();
     // Reserve the zone tiles' cells first so cards lay out around them.
     this.placeZoneTiles(grid, occupied);
+    const pendingDropId = this.pendingDrop?.cardId;
     const unplaced: CardDto[] = [];
 
+    if (this.pendingDrop) {
+      const { cardId, slot } = this.pendingDrop;
+      const card = cards.find((candidate) => candidate.id === cardId);
+      const cell = cellAt(grid, slot.col, slot.row);
+      if (cell && !cell.blocked && !occupied.has(cellKey(cell.col, cell.row))) {
+        occupied.add(cellKey(cell.col, cell.row));
+        if (card) {
+          positions.set(card.id, { x: cell.cx, y: cell.cy });
+          this.userSlots.set(card.id, slot);
+          this.userPlacedCards.add(card.id);
+        }
+      }
+      if (card) this.pendingDrop = null;
+    }
+    const capacity =
+      positions.size +
+      grid.cells.filter((cell) => !cell.blocked && !occupied.has(cellKey(cell.col, cell.row)))
+        .length;
+    const congested = cards.length > capacity;
+
     for (const c of cards) {
-      const slot = this.autoSort ? undefined : this.userSlots.get(c.id);
+      if (positions.has(c.id)) continue;
+      const slot =
+        this.autoSort || (congested && !this.userPlacedCards.has(c.id))
+          ? undefined
+          : this.userSlots.get(c.id);
       if (!slot) {
         unplaced.push(c);
         continue;
@@ -1333,28 +1349,6 @@ export class BoardRegion {
       }
       positions.set(c.id, { x: cell.cx, y: cell.cy });
       occupied.add(cellKey(cell.col, cell.row));
-    }
-
-    if (this.pendingDrop) {
-      const { cardId, slot } = this.pendingDrop;
-      const dropCell = cellAt(grid, slot.col, slot.row);
-      const dropCandidateIndex = unplaced.findIndex((card) => card.id === cardId);
-      if (dropCell && !dropCell.blocked) {
-        const dropCellKey = cellKey(dropCell.col, dropCell.row);
-        if (!occupied.has(dropCellKey)) {
-          if (dropCandidateIndex >= 0) {
-            const dropCandidate = unplaced[dropCandidateIndex]!;
-            this.userSlots.set(dropCandidate.id, slot);
-            this.userPlacedCards.add(dropCandidate.id);
-            positions.set(dropCandidate.id, { x: dropCell.cx, y: dropCell.cy });
-            unplaced.splice(dropCandidateIndex, 1);
-          }
-          occupied.add(dropCellKey);
-        }
-      }
-      if (dropCandidateIndex >= 0) {
-        this.pendingDrop = null;
-      }
     }
 
     const centerX = zone.x + zone.width / 2;
@@ -1403,10 +1397,30 @@ export class BoardRegion {
       };
 
     const catOrder: BattlefieldCardCategory[] = ["creature", "other", "land"];
+    const priority = (card: CardDto) =>
+      card.id === pendingDropId ? 0 : this.userPlacedCards.has(card.id) ? 1 : 2;
+    const anchorIds = new Set<string>();
+    const anchoredCategories = new Set(
+      cards.filter((card) => positions.has(card.id)).map(classify),
+    );
+    if (congested) {
+      for (const card of [...unplaced].sort((a, b) => priority(a) - priority(b))) {
+        const category = classify(card);
+        if (!anchoredCategories.has(category)) {
+          anchoredCategories.add(category);
+          anchorIds.add(card.id);
+        }
+      }
+    }
     const sortedUnplaced = [...unplaced].sort(
-      (a, b) => catOrder.indexOf(classify(a)) - catOrder.indexOf(classify(b)),
+      (a, b) =>
+        (congested
+          ? priority(a) - priority(b) ||
+            (priority(a) === 2 ? Number(anchorIds.has(b.id)) - Number(anchorIds.has(a.id)) : 0)
+          : 0) || catOrder.indexOf(classify(a)) - catOrder.indexOf(classify(b)),
     );
     const placedCells = new Map<string, GridCell>();
+    const overflow: CardDto[] = [];
 
     for (const c of sortedUnplaced) {
       const cat = classify(c);
@@ -1416,10 +1430,9 @@ export class BoardRegion {
         ? zone.y + grid.cellH / 2
         : zone.y + zone.height - grid.cellH / 2;
       const sorted = cellsByDistance(grid, centerX, anchorY);
-      const max = cat === "land" ? MAX_LAND_SLOTS : MAX_GRID_SLOTS;
 
       let picked: GridCell | null = null;
-      for (let i = 0; i < sorted.length && i < max; i++) {
+      for (let i = 0; i < sorted.length; i++) {
         const cell = sorted[i]!;
         if (cell.blocked) continue;
         if (occupied.has(cellKey(cell.col, cell.row))) continue;
@@ -1429,7 +1442,7 @@ export class BoardRegion {
       }
 
       if (!picked) {
-        for (let i = 0; i < sorted.length && i < max; i++) {
+        for (let i = 0; i < sorted.length; i++) {
           const cell = sorted[i]!;
           if (cell.blocked) continue;
           if (occupied.has(cellKey(cell.col, cell.row))) continue;
@@ -1444,8 +1457,13 @@ export class BoardRegion {
         occupied.add(cellKey(picked.col, picked.row));
         this.userSlots.set(c.id, { col: picked.col, row: picked.row });
       } else {
-        positions.set(c.id, { x: centerX, y: anchorY });
+        overflow.push(c);
       }
+    }
+    const fallback = overflow[0];
+    if (positions.size === 0 && fallback) {
+      positions.set(fallback.id, { x: centerX, y: zone.y + zone.height / 2 });
+      overflow.shift();
     }
     if (this.autoSort) {
       for (const category of catOrder) {
@@ -1473,7 +1491,7 @@ export class BoardRegion {
     }
     this.compressLands(cards, positions, grid.cardW);
 
-    return positions;
+    return { grid, positions, overflow };
   }
 
   getPlacementGhostRect(): { x: number; y: number; width: number; height: number } {
@@ -1577,7 +1595,7 @@ export class BoardRegion {
         : card;
     if (entry.sprite.card !== overriddenCard) entry.sprite.updateCardContent(overriddenCard);
     const stackCount = this.stackCounts.get(card.id) ?? 1;
-    entry.sprite.setStackCount(stackCount);
+    entry.sprite.setStackCount(stackCount, this.overflowAnchors.has(card.id));
     entry.sprite.setStackBadgeInteractive(
       stackCount > 1 ? () => this.toggleStackPeek(card.id) : null,
     );
@@ -1884,7 +1902,18 @@ export class BoardRegion {
     const anchor = state?.cards.find((c) => c.id === anchorId);
     const entry = this.entries.get(anchorId);
     if (!state || !anchor || !entry) return;
-    const pile = [anchor, ...state.cards.filter((c) => this.uiParent.get(c.id) === anchorId)];
+    const pile: CardDto[] = [];
+    const queued = [anchor.id];
+    const seen = new Set<string>();
+    for (let index = 0; index < queued.length; index++) {
+      const id = queued[index]!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const card = this.cardById.get(id);
+      if (!card) continue;
+      pile.push(card);
+      queued.push(...(this.effectiveChildrenMap.get(id) ?? []));
+    }
     const b = entry.sprite.getBounds();
     this.stackPeekAnchorId = anchorId;
     this.host.previewCards(pile, { x: b.x, y: b.y, width: b.width, height: b.height });
