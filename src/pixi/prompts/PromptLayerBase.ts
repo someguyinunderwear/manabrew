@@ -12,7 +12,8 @@ import {
 } from "pixi.js";
 import type { Theme } from "@/hooks/useTheme";
 import { getTheme } from "@/hooks/useTheme";
-import { hexToNum } from "@/pixi/colorUtils";
+import { hexToNum, mixNum } from "@/pixi/colorUtils";
+import { promptActionOwner } from "@/pixi/prompts/promptActionOwner";
 import { CardSprite } from "@/pixi/CardSprite";
 import { gameIconTexture } from "@/pixi/gameIconCache";
 import { loadManaSymbolTexture } from "@/pixi/manaSymbolCache";
@@ -634,13 +635,24 @@ export abstract class PromptLayerBase {
     this.app.stage.addChild(this.container);
   }
 
+  protected panelColors(): { background: number; border: number } {
+    const owner =
+      this.spec && !this.spec.gameOver ? promptActionOwner(this.spec, this.theme) : null;
+    const base = hexToNum(this.theme.appTheme.card);
+    return {
+      background: owner ? mixNum(base, hexToNum(owner.color), 0.15) : base,
+      border: hexToNum(owner?.color ?? this.theme.appTheme.border),
+    };
+  }
+
   protected panel(width: number, height: number, x: number, y: number, radius = 12): Container {
+    const colors = this.panelColors();
     const panel = new Container();
     panel.position.set(x, y);
     const background = new Graphics()
       .roundRect(0, 0, width, height, radius)
-      .fill({ color: hexToNum(this.theme.appTheme.card), alpha: 0.97 })
-      .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.9 });
+      .fill({ color: colors.background, alpha: 0.97 })
+      .stroke({ color: colors.border, width: 1, alpha: 0.9 });
     background.eventMode = "none";
     panel.addChild(background);
     return panel;
