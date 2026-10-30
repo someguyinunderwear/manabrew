@@ -163,6 +163,7 @@ export class BoardRegion {
   private uiParent = new Map<string, string>();
   private stackPeekAnchorId: string | null = null;
   private stackCounts = new Map<string, number>();
+  private manaControlSignatures = new Map<string, string>();
   private nameGroupChildren = new Set<string>();
   private overflowChildren = new Set<string>();
   private combatStaging: SceneCombatStaging | null = null;
@@ -847,6 +848,20 @@ export class BoardRegion {
     for (const c of this.lastState?.cards ?? []) prevCards.set(c.id, c);
     const isFirstState = this.lastState === null;
     this.lastState = state;
+    const controls = new Map<string, string[]>();
+    for (const ability of state.manaAbilityOptions ?? []) {
+      const signature = JSON.stringify(
+        Object.entries(ability)
+          .filter(([key]) => key !== "cardId" && key !== "actionId")
+          .sort(([a], [b]) => a.localeCompare(b)),
+      );
+      const group = controls.get(ability.cardId);
+      if (group) group.push(signature);
+      else controls.set(ability.cardId, [signature]);
+    }
+    this.manaControlSignatures = new Map(
+      [...controls].map(([id, signatures]) => [id, JSON.stringify(signatures.sort())]),
+    );
     this.combatRowAttackerIds = new Set(state.combatRowAttackerIds ?? []);
     this.combatRowBlocks = state.combatRowBlocks ?? [];
     this.combatRowBlockerIds = new Set(this.combatRowBlocks.map((b) => b.blockerId));
@@ -1565,7 +1580,37 @@ export class BoardRegion {
     entry.sprite.setPromptReference(
       this.promptReferenceCardId === card.id ? this.promptReferenceColor : null,
     );
-    this.host.rebuildOverlay(entry, state);
+    if (this.usesParentManaControl(card, state)) {
+      entry.overlayActive = false;
+      if (entry.overlay) {
+        entry.overlay.visible = false;
+        entry.overlay.eventMode = "none";
+      }
+    } else {
+      this.host.rebuildOverlay(entry, state);
+    }
+  }
+
+  private usesParentManaControl(card: CardDto, state: BattlefieldState): boolean {
+    const parentId = this.uiParent.get(card.id);
+    const parent = parentId ? this.cardById.get(parentId) : undefined;
+    const controls = this.manaControlSignatures.get(card.id);
+    if (
+      !parent ||
+      !controls ||
+      card.attachedTo ||
+      this.hoveredStackRoot === this.attachmentStackRoot(card.id)
+    )
+      return false;
+    if (!state.tappableLandIds?.includes(card.id) || !state.tappableLandIds.includes(parent.id))
+      return false;
+    for (const ids of [state.selectableCardIds, state.waterbendSourceIds, state.waterbentCardIds]) {
+      if (ids?.includes(card.id) || ids?.includes(parent.id)) return false;
+    }
+    return (
+      stackIdentityKey(card) === stackIdentityKey(parent) &&
+      controls === this.manaControlSignatures.get(parent.id)
+    );
   }
 
   private touchHitPadScreen(): number {
