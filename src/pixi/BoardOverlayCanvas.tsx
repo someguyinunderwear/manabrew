@@ -1,7 +1,11 @@
 // @refresh reset
 import { topModal } from "@/lib/modalStack";
 import type { PreviewFlipOptions, PreviewPlacement } from "@/lib/cardPreview";
-import { CARD_PREVIEW_EVENT_HANDLERS, isCardPreviewTarget } from "@/lib/cardPreviewEvents";
+import {
+  CARD_PREVIEW_EVENT_HANDLERS,
+  isBoardInputBlocker,
+  isCardPreviewTarget,
+} from "@/lib/cardPreviewEvents";
 import { hasActiveVirtualTextInput } from "@/lib/keybindings";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -494,7 +498,8 @@ export function BoardOverlayCanvasSurface({
             return (
               app.screen.contains(x, y) &&
               (!modal || modal.contains(canvas)) &&
-              (!isCardPreviewTarget(target) || target === canvas)
+              (!isCardPreviewTarget(target) || target === canvas) &&
+              !isBoardInputBlocker(target)
             );
           },
         };
@@ -872,7 +877,8 @@ export function BoardOverlayCanvasSurface({
       const modal = topModal();
       if (
         (modal && !modal.contains(canvas)) ||
-        (isCardPreviewTarget(pointerTarget) && pointerTarget !== canvas)
+        (isCardPreviewTarget(pointerTarget) && pointerTarget !== canvas) ||
+        isBoardInputBlocker(pointerTarget)
       ) {
         previewRef.current?.clearHover();
         commandPreviewRef.current?.clearHover();
@@ -908,6 +914,7 @@ export function BoardOverlayCanvasSurface({
     };
     const onOver = (event: PointerEvent) => {
       if (event.pointerType === "touch" || event.buttons !== 0) return;
+      if (isBoardInputBlocker(event.target)) return;
       const modal = topModal();
       if (modal && !modal.contains(canvas)) return;
       const rect = canvas.getBoundingClientRect();

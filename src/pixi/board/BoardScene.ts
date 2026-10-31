@@ -1,6 +1,6 @@
 import { UI_FONT_FAMILY } from "@/themes/typography";
 import { Application, Container, Graphics, Point, Text, type FederatedPointerEvent } from "pixi.js";
-import { isCardPreviewTarget } from "@/lib/cardPreviewEvents";
+import { isBoardInputBlocker, isCardPreviewTarget } from "@/lib/cardPreviewEvents";
 import type { CardDto, PlaymatSettings } from "@/protocol/game";
 import type { AttackTargetDto, TargetRef } from "@/protocol/prompts/common";
 import {
@@ -274,7 +274,7 @@ export class BoardScene {
         y <= this.canvasH &&
         (this.activeGesturePointerId !== null ||
           this.hand?.isDraggingFromHand() ||
-          !this.overlayHitTest?.(x, y)),
+          (!this.overlayHitTest?.(x, y) && !this.domBlocksBoardInput(x, y))),
     };
 
     this.dragHandler = new DragHandler();
@@ -335,7 +335,7 @@ export class BoardScene {
       if (
         this.activeGesturePointerId === null &&
         !this.hand?.isDraggingFromHand() &&
-        this.overlayHitTest?.(canvasX, canvasY)
+        (this.overlayHitTest?.(canvasX, canvasY) || isBoardInputBlocker(e.target))
       ) {
         if (this.hand?.hasActiveHover()) this.hand.resetHover();
         this.updateHoveredOpponent(-1, -1);
@@ -1363,6 +1363,11 @@ export class BoardScene {
       this.canvasDomRectFrame = frame;
     }
     return this.canvasDomRect;
+  }
+
+  private domBlocksBoardInput(x: number, y: number): boolean {
+    const rect = this.canvasRect();
+    return isBoardInputBlocker(document.elementFromPoint(rect.left + x, rect.top + y));
   }
 
   resize(width: number, height: number): void {
