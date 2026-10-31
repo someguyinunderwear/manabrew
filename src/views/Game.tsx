@@ -2563,6 +2563,7 @@ export default function Game({ exitTo }: GameProps = {}) {
           castingArrow={castingArrow}
           playerIsTargetable={playerIsTargetable}
           turnFlashPlayerId={turnFlashPlayerId}
+          turnNumber={gameView.turn}
           zonePanelOrder={zonePanelOrder}
           isOverBattlefield={isOverBattlefield}
           isOverHand={isOverHand}

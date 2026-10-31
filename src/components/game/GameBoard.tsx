@@ -116,6 +116,7 @@ interface GameBoardProps {
   myCommandZone?: CardDto[];
   playableIds: Set<string>;
   activePlayerId: string;
+  turnNumber?: number;
   priorityPlayerId: string;
   step: StepKind;
   promptType?: PromptType;
@@ -241,6 +242,7 @@ export function GameBoard({
   myCommandZone,
   playableIds,
   activePlayerId,
+  turnNumber,
   priorityPlayerId,
   step,
   promptType,
@@ -697,6 +699,10 @@ export function GameBoard({
     }
     return {
       currentStep: step,
+      turnNumber,
+      activePlayerName: stripUsernameTag(
+        [me, ...opponents].find((player) => player.id === activePlayerId)?.name ?? "Opponent",
+      ),
       isActiveTurn: activePlayerId === me.id,
       activePlayerId,
       myPlayerId: me.id,
@@ -705,7 +711,7 @@ export function GameBoard({
       opponents: opponents.map((op, i) => ({ id: op.id, index: i })),
       isInteractive: true,
     };
-  }, [step, activePlayerId, me.id, selfStops, opponents, opponentStopsMap]);
+  }, [step, activePlayerId, turnNumber, me, selfStops, opponents, opponentStopsMap]);
 
   const pixiPhaseStripCallbacks = useMemo(
     (): PhaseStripCallbacks => ({

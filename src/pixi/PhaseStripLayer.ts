@@ -25,6 +25,8 @@ import {
 import { PHASES as STEP_DEFS } from "@/components/game/game.constants";
 import type { StepKind } from "@/protocol";
 import { animationsEnabled } from "./effects/enabled";
+import { TurnAnnouncement } from "@/pixi/TurnAnnouncement";
+import { OPPONENT_SEATS } from "@/components/game/game.types";
 
 interface PhaseSpec {
   id: string;
@@ -168,6 +170,8 @@ export interface OpponentInfo {
 }
 
 export interface PhaseStripState {
+  turnNumber?: number;
+  activePlayerName?: string;
   currentStep: string;
   isActiveTurn: boolean;
   activePlayerId: string;
@@ -224,6 +228,11 @@ export class PhaseStripLayer {
   private forceShowIndicators = false;
   private expandedBounds: { x: number; y: number; w: number; h: number } | null = null;
   private realState: PhaseStripState | null = null;
+  private readonly turnAnnouncement: TurnAnnouncement;
+  private announcementTurnKey: string | null = null;
+  private announcementTurnNumber = 0;
+  private announcementPlayedKey: string | null = null;
+  private announcementStep: string | null = null;
   private sweepQueue: { step: string; activePlayerId: string }[] = [];
   private sweepNextAt = 0;
   private sweepDwellMs = SWEEP_DWELL_MS;
@@ -233,6 +242,8 @@ export class PhaseStripLayer {
     this.theme = theme;
     this.container = new Container();
     this.container.label = "phaseStrip";
+    this.turnAnnouncement = new TurnAnnouncement(theme);
+    this.container.addChild(this.turnAnnouncement.container);
 
     this.lineGfx = new Graphics();
     this.container.addChild(this.lineGfx);
@@ -495,6 +506,7 @@ export class PhaseStripLayer {
 
   setTheme(theme: Theme): void {
     this.theme = theme;
+    this.turnAnnouncement.setTheme(theme);
     this.updateTypography();
     const foreground = readableTextColor(
       theme.gameTheme.phaseStrip.background,
@@ -513,10 +525,42 @@ export class PhaseStripLayer {
   resize(width: number, height: number): void {
     this.canvasWidth = width;
     this.canvasHeight = height;
+    this.turnAnnouncement.resize(width, height);
     if (this.lastState) this.render(this.lastState);
   }
 
   update(state: PhaseStripState): void {
+    if (state.activePlayerId && state.currentStep !== "cleanup") {
+      const turnNumber = state.turnNumber ?? 0;
+      const key = `${turnNumber}:${state.activePlayerId}`;
+      const openingTurn =
+        this.announcementTurnKey === key &&
+        this.announcementStep === "untap" &&
+        state.currentStep !== "untap" &&
+        this.announcementPlayedKey !== key;
+      if (
+        this.announcementTurnKey !== null &&
+        (this.announcementTurnKey !== key || openingTurn) &&
+        turnNumber >= this.announcementTurnNumber
+      ) {
+        const local = state.activePlayerId === state.myPlayerId;
+        const opponentIndex = state.opponents.findIndex(
+          (opponent) => opponent.id === state.activePlayerId,
+        );
+        const seat = local ? "self" : OPPONENT_SEATS[opponentIndex];
+        if (seat) {
+          this.turnAnnouncement.show(
+            local ? "YOUR TURN" : `${state.activePlayerName ?? "Opponent"}'s Turn`,
+            seat,
+          );
+          this.announcementPlayedKey = key;
+        }
+      }
+      if (turnNumber < this.announcementTurnNumber) this.announcementPlayedKey = key;
+      this.announcementTurnKey = key;
+      this.announcementTurnNumber = turnNumber;
+      this.announcementStep = state.currentStep;
+    }
     const displayed = this.lastState;
     this.realState = state;
     if (!animationsEnabled()) {
@@ -620,6 +664,13 @@ export class PhaseStripLayer {
     }
     const rowHeight = CELL_H + INDICATOR_HIT_H * 2 + CELL_GAP;
     const stripY = y - ((rowCount - 1) * rowHeight) / 2;
+    this.turnAnnouncement.resize(
+      this.canvasWidth,
+      this.canvasHeight,
+      this.compact && !this.expanded
+        ? COMPACT_PILL_H / 2
+        : (CELL_H + (rowCount - 1) * rowHeight) / 2 + INDICATOR_HIT_H,
+    );
 
     // Determine the active player's color (divider line + active cell).
     const pc = t.playerColors;
@@ -947,6 +998,7 @@ export class PhaseStripLayer {
   }
 
   tick(): void {
+    this.turnAnnouncement.tick();
     if (!animationsEnabled() && this.sweepQueue.length && this.realState) {
       this.sweepQueue = [];
       this.render(this.realState);
