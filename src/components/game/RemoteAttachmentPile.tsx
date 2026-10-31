@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { ArrowDownAZ } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { ArrowDownAZ, ChevronDown, ChevronRight } from "lucide-react";
 import type { CardDto } from "@/protocol/game";
 import { cn } from "@/lib/utils";
 import { useLongPressPreview } from "@/hooks/useLongPressPreview";
@@ -35,7 +35,8 @@ export function RemoteAttachmentPile({
   const [expanded, setExpanded] = useState(false);
   const [sortBy, setSortBy] = useState<AttachmentSort>("attachee");
   const panelRef = useRef<HTMLElement>(null);
-  const cards = sections.flatMap((section) => section.cards);
+  const populatedSections = sections.filter((section) => section.cards.length > 0);
+  const cards = populatedSections.flatMap((section) => section.cards);
   const previewAnchor = (anchor: DOMRect) => {
     const panel = panelRef.current;
     if (!panel) return anchor;
@@ -72,6 +73,7 @@ export function RemoteAttachmentPile({
   return (
     <section
       ref={panelRef}
+      data-board-input-blocker=""
       aria-label="Your Attachments"
       className={cn(
         "pointer-events-none absolute right-0 bottom-24 z-40 flex max-w-[min(70vw,32rem)] items-end transition-transform duration-150 motion-reduce:transition-none",
@@ -141,16 +143,15 @@ export function RemoteAttachmentPile({
             Sort: {sortBy === "attachee" ? "Attachee name" : "Attachment name"}
           </button>
         </header>
-        {sections.map((section) => (
-          <section
+        {populatedSections.map((section) => (
+          <AttachmentBoardSection
             key={section.playerId}
-            aria-label={section.title}
-            className="space-y-2 border-t border-border pt-2"
+            section={section}
+            onToggle={() => {
+              onHighlight(null);
+              onDismissPreview();
+            }}
           >
-            <header className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-ui-meta font-medium text-foreground">{section.title}</h3>
-              <AttachmentCounts cards={section.cards} />
-            </header>
             {[true, false].map((attached) => {
               const group = section.cards.filter(
                 (reference) => Boolean(reference.card.attachedTo) === attached,
@@ -191,8 +192,45 @@ export function RemoteAttachmentPile({
                 </div>
               );
             })}
-          </section>
+          </AttachmentBoardSection>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function AttachmentBoardSection({
+  section,
+  onToggle,
+  children,
+}: {
+  section: AttachmentSection;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  return (
+    <section aria-label={section.title} className="space-y-2 border-t border-border pt-2">
+      <h3>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          className="flex w-full flex-wrap items-center gap-2 rounded py-1 text-left text-ui-meta font-medium text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          onClick={() => {
+            onToggle();
+            setExpanded((value) => !value);
+          }}
+        >
+          <Chevron aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">{section.title}</span>
+          <AttachmentCounts cards={section.cards} />
+        </button>
+      </h3>
+      <div id={contentId} hidden={!expanded} className="space-y-2">
+        {children}
       </div>
     </section>
   );
