@@ -180,6 +180,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     const sourceLeft = width + SOURCE_CARD_GAP;
     const panel = this.panel(width, modalHeight, x, y, 12);
     const panelBackground = panel.children[0] as Graphics;
+    const panelColors = this.panelColors();
     panel.eventMode = "static";
     panel.on("pointerdowncapture", (event: FederatedPointerEvent) => {
       const filter = this.selectionFilterView;
@@ -395,10 +396,10 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         .lineTo(12, modalHeight)
         .arc(12, modalHeight - 12, 12, Math.PI / 2, Math.PI)
         .closePath()
-        .fill({ color: hexToNum(this.theme.appTheme.card), alpha: 0.98 })
+        .fill({ color: panelColors.background, alpha: 0.98 })
         .moveTo(0, footerTop)
         .lineTo(width, footerTop)
-        .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.8 });
+        .stroke({ color: panelColors.border, width: 1, alpha: 0.8 });
       footer.position.set(
         PANEL_PADDING,
         footerTop + Math.max(8, (footerHeight - footerContentHeight) / 2),
@@ -501,6 +502,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     state: NonNullable<PromptModalLayer["modalBody"]>,
     height: number,
   ): void {
+    const panelColors = this.panelColors();
     state.height = height;
     state.viewportHeight = Math.max(
       0,
@@ -512,8 +514,8 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     state.panelBackground
       .clear()
       .roundRect(0, 0, state.width, height, 12)
-      .fill({ color: hexToNum(this.theme.appTheme.card), alpha: 0.97 })
-      .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.9 });
+      .fill({ color: panelColors.background, alpha: 0.97 })
+      .stroke({ color: panelColors.border, width: 1, alpha: 0.9 });
     state.mask
       .clear()
       .rect(PANEL_PADDING, state.bodyTop, state.width - PANEL_PADDING * 2, state.viewportHeight)
@@ -533,10 +535,10 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         .lineTo(12, height)
         .arc(12, height - 12, 12, Math.PI / 2, Math.PI)
         .closePath()
-        .fill({ color: hexToNum(this.theme.appTheme.card), alpha: 0.98 })
+        .fill({ color: panelColors.background, alpha: 0.98 })
         .moveTo(0, footerTop)
         .lineTo(state.width, footerTop)
-        .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.8 });
+        .stroke({ color: panelColors.border, width: 1, alpha: 0.8 });
       state.footer.position.set(
         PANEL_PADDING,
         footerTop + Math.max(8, (state.footerHeight - state.footerContentHeight) / 2),
