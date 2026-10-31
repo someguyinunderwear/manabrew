@@ -59,6 +59,7 @@ import {
   samePromptPresentation,
 } from "./PromptLayerBase";
 import { PromptModalLayer } from "./PromptModalLayer";
+import { promptActionOwner } from "@/pixi/prompts/promptActionOwner";
 
 const ACTION_CARD_SIZE = GAME_CARD_SIZES.battlefield;
 const ACTION_CARD_GAP = 8;
@@ -411,6 +412,7 @@ export class PromptLayer extends PromptModalLayer {
     }
 
     const viewKey = actionViewKey(action);
+    const owner = this.spec ? promptActionOwner(this.spec, this.theme) : null;
     const effectivePromptType = promptTypeForView(action.promptType, action.promptActionOverride);
     const preview = action.promptActionOverride != null;
     const isNoActionView = viewKey === "noAction";
@@ -419,6 +421,17 @@ export class PromptLayer extends PromptModalLayer {
       ? viewKey === "chooseAction" || viewKey === "noAction"
       : isNoActionView || action.promptType === "chooseAction";
     const contextLines = this.actionContextLines();
+    const contextTitle =
+      effectivePromptType === "chooseAction" || (!effectivePromptType && showPriorityMode)
+        ? "Priority"
+        : hasAction
+          ? actionTitle(effectivePromptType)
+          : "Action";
+    const panelTitle = owner
+      ? `${owner.label} ${contextTitle}`
+      : hasAction
+        ? actionTitle(effectivePromptType)
+        : "Waiting";
     const showActionContext = !minimal && (contextLines.length > 0 || this.hasActionCombatInfo());
     if (!showActionContext) this.actionContextOpen = false;
     const fixedWidth = minimal
@@ -488,14 +501,15 @@ export class PromptLayer extends PromptModalLayer {
     panel.eventMode = "static";
     panel.hitArea = new Rectangle(0, 0, width, panelHeight);
     panel.accessible = true;
-    panel.accessibleTitle = hasAction ? actionTitle(effectivePromptType) : "Waiting";
+    panel.accessibleTitle = panelTitle;
     panel.tabIndex = -1;
 
     if (hasAction && !minimal) {
       const glowColor =
-        effectivePromptType === "chooseAttackers" && action.pendingAttackers.length > 0
+        owner?.color ??
+        (effectivePromptType === "chooseAttackers" && action.pendingAttackers.length > 0
           ? this.theme.gameTheme.promptAction.attackAction
-          : this.theme.gameTheme.cardRing;
+          : this.theme.gameTheme.cardRing);
       this.actionGlow = new PromptGlow({
         width,
         height: panelHeight,
@@ -507,10 +521,26 @@ export class PromptLayer extends PromptModalLayer {
     }
 
     if (!minimal) {
-      const background = this.makeActionPanelSurface(width, panelHeight, radius, squareBottom);
+      const background = this.makeActionPanelSurface(
+        width,
+        panelHeight,
+        radius,
+        squareBottom,
+        owner?.color,
+      );
       if (this.actionGlow) panel.addChild(this.actionGlow.spill);
       panel.addChild(background);
       if (this.actionGlow) panel.addChild(this.actionGlow);
+    } else if (owner) {
+      panel.addChild(
+        new Graphics()
+          .roundRect(0, 0, width, panelHeight, radius)
+          .fill({
+            color: mixNum(hexToNum(this.theme.appTheme.card), hexToNum(owner.color), 0.15),
+            alpha: 0.9,
+          })
+          .stroke({ color: hexToNum(owner.color), width: 1.5, alpha: 0.85 }),
+      );
     }
 
     if (!minimal) {
@@ -530,18 +560,13 @@ export class PromptLayer extends PromptModalLayer {
         panel.addChild(info);
         right -= info.buttonWidth + 6;
       }
-      const title = promptText(
-        (hasAction ? actionTitle(effectivePromptType) : "Waiting").toUpperCase(),
-        11,
-        this.theme.appTheme.foreground,
-        {
-          weight: "700",
-          role: "label",
-          width: Math.max(20, right - 8),
-          letterSpacing: 1.32,
-          truncate: true,
-        },
-      );
+      const title = promptText(panelTitle.toUpperCase(), 11, this.theme.appTheme.foreground, {
+        weight: "700",
+        role: "label",
+        width: Math.max(20, right - 8),
+        letterSpacing: 1.32,
+        truncate: true,
+      });
       title.position.set(8, 9);
       title.alpha = 0.9;
       panel.addChild(title);
@@ -1659,9 +1684,13 @@ export class PromptLayer extends PromptModalLayer {
     height: number,
     radius: number,
     squareBottom: boolean,
+    accent?: string,
   ): Container {
     const baseCard = hexToNum(this.theme.appTheme.card);
-    const card = this.ambientColor == null ? baseCard : mixNum(baseCard, this.ambientColor, 0.35);
+    const ambient =
+      this.ambientColor == null ? baseCard : mixNum(baseCard, this.ambientColor, 0.35);
+    const card = accent ? mixNum(ambient, hexToNum(accent), 0.15) : ambient;
+    const border = hexToNum(accent ?? this.theme.appTheme.border);
     const shadow = new Graphics()
       .roundRect(0, 14, width, height, radius)
       .fill({ color: hexToNum(this.theme.gameTheme.canvas.shadow) });
@@ -1681,11 +1710,11 @@ export class PromptLayer extends PromptModalLayer {
         .lineTo(width - radius, 0)
         .quadraticCurveTo(width, 0, width, radius)
         .lineTo(width, height)
-        .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.35 });
+        .stroke({ color: border, width: accent ? 1.5 : 1, alpha: accent ? 0.85 : 0.35 });
     } else {
       surface
         .roundRect(0, 0, width, height, radius)
-        .stroke({ color: hexToNum(this.theme.appTheme.border), width: 1, alpha: 0.35 });
+        .stroke({ color: border, width: accent ? 1.5 : 1, alpha: accent ? 0.85 : 0.35 });
     }
     surface.eventMode = "none";
     const container = new Container();
